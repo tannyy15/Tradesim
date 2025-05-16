@@ -1,25 +1,36 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import OrderbookDisplay from "./OrderbookDisplay";
 import TradeParametersForm from "./TradeParametersForm";
 import CostAnalysisDashboard from "./CostAnalysisDashboard";
+import simulationService, {
+  SimulationResponse,
+  OrderbookData,
+} from "@/services/simulationService";
 
-interface SimulationResult {
-  slippage: number;
-  marketImpact: number;
-  fees: number;
-  netTransactionCost: number;
-  processingLatency: number;
-  makerTakerProbability: number;
-}
+interface SimulationResult extends SimulationResponse {}
 
 const Home = () => {
   const [isConnected, setIsConnected] = useState(false);
-  const [orderbookData, setOrderbookData] = useState<any>(null);
+  const [orderbookData, setOrderbookData] = useState<OrderbookData | null>(
+    null,
+  );
   const [simulationResult, setSimulationResult] =
     useState<SimulationResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [performanceMetrics, setPerformanceMetrics] = useState<{
+    avgDataProcessingLatency: number;
+    avgUIUpdateLatency: number;
+    avgEndToEndLatency: number;
+  }>({
+    avgDataProcessingLatency: 0,
+    avgUIUpdateLatency: 0,
+    avgEndToEndLatency: 0,
+  });
+
+  // Ref to track UI update timing
+  const uiUpdateStartTimeRef = useRef<number | null>(null);
 
   // Connect to WebSocket for real-time orderbook data
   useEffect(() => {
@@ -34,8 +45,66 @@ const Home = () => {
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        setOrderbookData(data);
+        // Start timing for data processing
+        const dataProcessingStart = performance.now();
+
+        const rawData = JSON.parse(event.data);
+
+        // Process the raw data into the format our application expects
+        const processedData: OrderbookData = {
+          bids: rawData.bids.map((bid: [number, number], index: number) => ({
+            price: bid[0],
+            size: bid[1],
+            total: rawData.bids
+              .slice(0, index + 1)
+              .reduce(
+                (sum: number, item: [number, number]) => sum + item[1],
+                0,
+              ),
+            percentage: 0, // Will be calculated after all entries are processed
+          })),
+          asks: rawData.asks.map((ask: [number, number], index: number) => ({
+            price: ask[0],
+            size: ask[1],
+            total: rawData.asks
+              .slice(0, index + 1)
+              .reduce(
+                (sum: number, item: [number, number]) => sum + item[1],
+                0,
+              ),
+            percentage: 0, // Will be calculated after all entries are processed
+          })),
+          spread: rawData.asks[0][0] - rawData.bids[0][0],
+          spreadPercentage:
+            ((rawData.asks[0][0] - rawData.bids[0][0]) / rawData.bids[0][0]) *
+            100,
+          timestamp: Date.now(),
+        };
+
+        // Calculate percentages based on max total
+        const maxTotal = Math.max(
+          ...processedData.bids.map((bid) => bid.total),
+          ...processedData.asks.map((ask) => ask.total),
+        );
+
+        processedData.bids = processedData.bids.map((bid) => ({
+          ...bid,
+          percentage: (bid.total / maxTotal) * 100,
+        }));
+
+        processedData.asks = processedData.asks.map((ask) => ({
+          ...ask,
+          percentage: (ask.total / maxTotal) * 100,
+        }));
+
+        setOrderbookData(processedData);
+
+        // End timing for data processing
+        const dataProcessingEnd = performance.now();
+        const dataProcessingLatency = dataProcessingEnd - dataProcessingStart;
+        console.log(
+          `WebSocket data processing latency: ${dataProcessingLatency.toFixed(2)}ms`,
+        );
       } catch (error) {
         console.error("Error parsing WebSocket data:", error);
       }
@@ -56,48 +125,64 @@ const Home = () => {
     };
   }, []);
 
+  // Update performance metrics periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPerformanceMetrics(simulationService.getAverageMetrics());
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   // Handle form submission and run simulation
   const handleRunSimulation = async (parameters: any) => {
     setIsLoading(true);
 
+    // Start timing for UI update
+    uiUpdateStartTimeRef.current = performance.now();
+
     try {
-      // In a real implementation, this would call your backend API
-      // For now, we'll simulate a response with mock data
+      if (!orderbookData) {
+        throw new Error("Orderbook data is not available");
+      }
 
-      // Simulate API call delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Mock simulation result
-      const result: SimulationResult = {
-        slippage: Math.random() * 0.5,
-        marketImpact: Math.random() * 0.8,
-        fees:
-          parameters.orderSize *
-          0.001 *
-          (parameters.feeTier === "vip" ? 0.5 : 1),
-        netTransactionCost: Math.random() * parameters.orderSize * 0.02,
-        processingLatency: Math.random() * 100 + 50,
-        makerTakerProbability: Math.random(),
-      };
+      // Call the simulation service
+      const result = await simulationService.runSimulation(orderbookData, {
+        symbol: parameters.asset || "BTC-USDT-SWAP",
+        orderSize: parameters.orderSize,
+        feeTier: parameters.feeTier,
+        executionStrategy: parameters.executionStrategy,
+        volatility: parameters.volatility,
+        urgency: parameters.urgency,
+      });
 
       setSimulationResult(result);
+
+      // Record UI update latency
+      if (uiUpdateStartTimeRef.current) {
+        const uiUpdateLatency =
+          performance.now() - uiUpdateStartTimeRef.current;
+        simulationService.recordUIUpdateLatency(uiUpdateLatency);
+        console.log(`UI update latency: ${uiUpdateLatency.toFixed(2)}ms`);
+      }
     } catch (error) {
       console.error("Error running simulation:", error);
     } finally {
       setIsLoading(false);
+      uiUpdateStartTimeRef.current = null;
     }
   };
 
   return (
     <div className="min-h-screen bg-background p-6">
-      <header className="mb-8">
+      <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">
-          GoQuant Trade Simulator
+          Trade Simulator Dashboard
         </h1>
         <p className="text-muted-foreground">
           Real-time market data analysis and trade cost estimation
         </p>
-      </header>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
@@ -125,7 +210,7 @@ const Home = () => {
             </CardHeader>
             <CardContent>
               <TradeParametersForm
-                onSubmit={handleRunSimulation}
+                onRunSimulation={handleRunSimulation}
                 isLoading={isLoading}
               />
             </CardContent>
@@ -142,7 +227,17 @@ const Home = () => {
                   <TabsTrigger value="performance">Performance</TabsTrigger>
                 </TabsList>
                 <TabsContent value="metrics">
-                  <CostAnalysisDashboard data={simulationResult} />
+                  <CostAnalysisDashboard
+                    slippage={simulationResult?.slippage}
+                    marketImpact={simulationResult?.marketImpact}
+                    fees={simulationResult?.fees}
+                    netTransactionCost={simulationResult?.netTransactionCost}
+                    processingLatency={simulationResult?.processingLatency}
+                    makerTakerProbability={
+                      simulationResult?.makerTakerProbability
+                    }
+                    isLoading={isLoading}
+                  />
                 </TabsContent>
                 <TabsContent value="performance">
                   {simulationResult ? (

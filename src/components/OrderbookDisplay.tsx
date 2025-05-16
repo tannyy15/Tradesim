@@ -79,7 +79,11 @@ const OrderbookDisplay = ({
 
   // Calculate depth chart percentages
   const maxTotal =
-    data && data.bids && data.asks
+    data &&
+    Array.isArray(data.bids) &&
+    Array.isArray(data.asks) &&
+    data.bids.length > 0 &&
+    data.asks.length > 0
       ? Math.max(
           ...data.bids.map((bid) => bid.total),
           ...data.asks.map((ask) => ask.total),
@@ -110,11 +114,17 @@ const OrderbookDisplay = ({
         </div>
         <div className="flex items-center gap-2 mt-1">
           <Badge variant="outline" className="text-xs">
-            Spread: {data.spread.toFixed(2)} ({data.spreadPercentage.toFixed(3)}
+            Spread: {data?.spread ? Number(data.spread).toFixed(2) : "--"} (
+            {data?.spreadPercentage
+              ? Number(data.spreadPercentage).toFixed(3)
+              : "--"}
             %)
           </Badge>
           <Badge variant="outline" className="text-xs">
-            Updated: {new Date(data.timestamp).toLocaleTimeString()}
+            Updated:{" "}
+            {data?.timestamp
+              ? new Date(data.timestamp).toLocaleTimeString()
+              : "--"}
           </Badge>
         </div>
       </CardHeader>
@@ -146,7 +156,7 @@ const OrderbookDisplay = ({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.bids.map((bid, index) => (
+                    {data?.bids?.map((bid, index) => (
                       <TableRow key={`bid-${index}`}>
                         <TableCell className="text-right font-medium text-green-500">
                           {bid.price.toLocaleString("en-US", {
@@ -154,10 +164,14 @@ const OrderbookDisplay = ({
                           })}
                         </TableCell>
                         <TableCell className="text-right">
-                          {bid.size.toFixed(4)}
+                          {typeof bid.size === "number"
+                            ? bid.size.toFixed(4)
+                            : bid.size}
                         </TableCell>
                         <TableCell className="text-right">
-                          {bid.total.toFixed(4)}
+                          {typeof bid.total === "number"
+                            ? bid.total.toFixed(4)
+                            : bid.total}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -179,7 +193,7 @@ const OrderbookDisplay = ({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.asks.map((ask, index) => (
+                    {data?.asks?.map((ask, index) => (
                       <TableRow key={`ask-${index}`}>
                         <TableCell className="text-right font-medium text-red-500">
                           {ask.price.toLocaleString("en-US", {
@@ -187,10 +201,14 @@ const OrderbookDisplay = ({
                           })}
                         </TableCell>
                         <TableCell className="text-right">
-                          {ask.size.toFixed(4)}
+                          {typeof ask.size === "number"
+                            ? ask.size.toFixed(4)
+                            : ask.size}
                         </TableCell>
                         <TableCell className="text-right">
-                          {ask.total.toFixed(4)}
+                          {typeof ask.total === "number"
+                            ? ask.total.toFixed(4)
+                            : ask.total}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -205,7 +223,7 @@ const OrderbookDisplay = ({
               <div className="flex h-full">
                 {/* Bids depth visualization */}
                 <div className="flex-1 flex flex-col justify-center items-end pr-1 space-y-1">
-                  {data.bids.map((bid, index) => (
+                  {data?.bids?.map((bid, index) => (
                     <div
                       key={`bid-depth-${index}`}
                       className="flex items-center w-full"
@@ -227,7 +245,7 @@ const OrderbookDisplay = ({
 
                 {/* Asks depth visualization */}
                 <div className="flex-1 flex flex-col justify-center items-start pl-1 space-y-1">
-                  {data.asks.map((ask, index) => (
+                  {data?.asks?.map((ask, index) => (
                     <div
                       key={`ask-depth-${index}`}
                       className="flex items-center w-full"

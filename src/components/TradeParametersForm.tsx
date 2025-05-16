@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -52,6 +54,7 @@ type FormValues = z.infer<typeof formSchema>;
 
 interface TradeParametersFormProps {
   onRunSimulation: (values: FormValues) => void;
+  isLoading?: boolean;
 }
 
 const TradeParametersForm = ({
